@@ -1,0 +1,256 @@
+:root {
+  --hud-bg: rgba(6, 30, 48, 0.55);
+  --hud-text: #f2fbff;
+  --hud-muted: #a9cbe0;
+  --accent: #4fd1c5;
+  --good: #5be37d;
+  --ok: #ffd25a;
+  --bad: #ff6b5a;
+  --card-bg: rgba(5, 24, 40, 0.86);
+  --card-border: rgba(160, 220, 255, 0.25);
+  --button-bg: rgba(255, 255, 255, 0.1);
+  --button-hover: rgba(255, 255, 255, 0.2);
+  --page-bg: #062033;
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --card-bg: rgba(2, 12, 22, 0.9);
+    --hud-bg: rgba(2, 14, 24, 0.6);
+  }
+}
+:root[data-theme='dark'] {
+  --card-bg: rgba(2, 12, 22, 0.9);
+  --hud-bg: rgba(2, 14, 24, 0.6);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--page-bg);
+  color: var(--hud-text);
+  font-family: var(--font);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+#game {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+[hidden] { display: none !important; }
+
+/* HUD */
+#hud { position: fixed; inset: 0; pointer-events: none; }
+
+.panel {
+  position: absolute;
+  background: var(--hud-bg);
+  border-radius: 12px;
+  padding: 8px 14px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.label { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--hud-muted); }
+.big { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.unit { font-size: 12px; color: var(--hud-muted); }
+.combo { font-size: 14px; font-weight: 600; color: var(--accent); min-height: 1.2em; }
+
+.score-panel { top: max(12px, env(safe-area-inset-top)); left: 16px; min-width: 140px; }
+.timer-panel { top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); text-align: center; }
+.timer-panel.low .big { color: var(--bad); }
+.speed-panel { top: max(12px, env(safe-area-inset-top)); right: 16px; min-width: 130px; text-align: right; }
+.bar { height: 5px; background: rgba(255, 255, 255, 0.15); border-radius: 3px; margin-top: 4px; overflow: hidden; }
+#speedbar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--ok), var(--bad)); }
+
+#depth-gauge {
+  position: absolute;
+  right: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 46vh;
+  border-radius: 5px;
+  overflow: visible;
+}
+#depth-gauge .sky { position: absolute; left: 0; right: 0; top: 0; height: 40%; background: rgba(190, 230, 255, 0.35); border-radius: 5px 5px 0 0; }
+#depth-gauge .sea { position: absolute; left: 0; right: 0; top: 40%; bottom: 0; background: linear-gradient(rgba(40, 150, 190, 0.6), rgba(2, 20, 40, 0.8)); border-radius: 0 0 5px 5px; }
+#depth-gauge .surface { position: absolute; left: -6px; right: -6px; top: 40%; height: 2px; background: var(--hud-text); }
+#depth-marker {
+  position: absolute;
+  left: -5px;
+  width: 20px;
+  height: 20px;
+  margin-top: -10px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--hud-text);
+}
+#depth-label {
+  position: absolute;
+  right: 22px;
+  margin-top: -9px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+#tricks, #entry, #popup {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  white-space: nowrap;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+#tricks { top: 18%; font-size: 24px; font-weight: 700; }
+#entry { top: calc(18% + 36px); font-size: 16px; font-weight: 600; }
+#entry.good { color: var(--good); }
+#entry.ok { color: var(--ok); }
+#entry.bad { color: var(--bad); }
+#popup { top: 34%; font-size: 40px; font-weight: 800; opacity: 0; transition: opacity 0.25s; }
+#popup.show { opacity: 1; transition: none; }
+#popup .points { display: block; font-size: 22px; font-weight: 600; color: var(--hud-text); }
+#popup.perfect { color: var(--good); }
+#popup.clean { color: var(--hud-text); }
+#popup.wipeout { color: var(--bad); }
+
+#device {
+  position: absolute;
+  left: 16px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  font-size: 12px;
+  color: var(--hud-muted);
+  background: var(--hud-bg);
+  padding: 5px 10px;
+  border-radius: 8px;
+}
+
+/* Overlays */
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(2, 16, 28, 0.35);
+  overflow-y: auto;
+}
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 24px 28px;
+  max-width: 560px;
+  width: 100%;
+  text-align: center;
+  margin: auto;
+}
+h1 { margin: 0; font-size: clamp(28px, 6vw, 42px); }
+h2 { margin: 0 0 12px; font-size: 28px; }
+.accent { color: var(--accent); }
+.tag { margin: 4px 0 12px; color: var(--hud-muted); text-transform: uppercase; letter-spacing: 0.2em; font-size: 12px; }
+.tip { color: var(--hud-muted); line-height: 1.5; }
+.hint { font-size: 13px; color: var(--hud-muted); }
+.final { font-size: 52px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+.row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+
+button {
+  font: inherit;
+  color: var(--hud-text);
+  background: var(--button-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  padding: 10px 18px;
+  cursor: pointer;
+}
+button:hover { background: var(--button-hover); }
+button.primary { background: var(--accent); color: #032a33; border-color: transparent; font-weight: 700; padding: 12px 32px; font-size: 17px; }
+
+kbd {
+  display: inline-block;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--card-border);
+  background: var(--button-bg);
+}
+kbd.pad { border-radius: 10px; background: rgba(79, 209, 197, 0.18); }
+
+.controls { width: 100%; margin-top: 16px; border-collapse: collapse; font-size: 13px; text-align: left; }
+.controls th { color: var(--hud-muted); font-weight: 600; padding: 4px 6px; }
+.controls td { padding: 5px 6px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.controls td:first-child { color: var(--hud-muted); }
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 70px;
+  transform: translateX(-50%);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+#toast.show { opacity: 1; }
+
+/* Touch controls */
+#touch { position: fixed; inset: 0; pointer-events: none; }
+#stick-zone { position: absolute; left: 0; top: 25%; bottom: 0; width: 50%; pointer-events: auto; }
+#stick-base {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  left: 90px;
+  bottom: 40px;
+}
+#stick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  margin: -27px 0 0 -27px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.45);
+}
+#touch-buttons { position: absolute; right: 16px; bottom: max(24px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: auto auto; gap: 10px; pointer-events: auto; }
+#touch-buttons button { width: 64px; height: 64px; border-radius: 50%; font-size: 24px; padding: 0; background: rgba(255, 255, 255, 0.15); }
+#touch-swim { grid-column: span 2; width: 138px !important; border-radius: 34px !important; font-size: 16px !important; font-weight: 700; background: rgba(79, 209, 197, 0.45) !important; }
+#touch-buttons button.held { background: rgba(255, 255, 255, 0.4) !important; }
+#touch-pause { position: absolute; top: max(130px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); pointer-events: auto; width: 44px; height: 36px; padding: 0; font-weight: 700; }
+
+@media (max-width: 600px) {
+  .big { font-size: 20px; }
+  .score-panel, .speed-panel { min-width: 0; padding: 6px 10px; }
+  .score-panel { left: 8px; }
+  .speed-panel { right: 8px; }
+  .timer-panel { top: max(70px, env(safe-area-inset-top)); }
+  #depth-gauge { right: 12px; height: 34vh; }
+  #tricks { font-size: 18px; }
+  #popup { font-size: 30px; }
+  .controls { font-size: 12px; }
+  .card { padding: 20px 16px; }
+}

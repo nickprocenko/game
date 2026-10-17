@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Dolphin Olympics 3D</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud" hidden>
+      <div class="panel score-panel">
+        <div class="label">Score</div>
+        <div id="score" class="big">0</div>
+        <div id="combo" class="combo"></div>
+      </div>
+      <div class="panel timer-panel">
+        <div class="label">Time</div>
+        <div id="timer" class="big">2:00</div>
+      </div>
+      <div class="panel speed-panel">
+        <div class="label">Speed</div>
+        <div><span id="speed" class="big">0</span> <span class="unit">km/h</span></div>
+        <div class="bar"><div id="speedbar"></div></div>
+      </div>
+      <div id="depth-gauge" aria-hidden="true">
+        <div class="sky"></div>
+        <div class="sea"></div>
+        <div class="surface"></div>
+        <div id="depth-marker"></div>
+        <div id="depth-label"></div>
+      </div>
+      <div id="tricks"></div>
+      <div id="entry"></div>
+      <div id="popup"></div>
+      <div id="device"></div>
+    </div>
+
+    <div id="title" class="overlay">
+      <div class="card">
+        <h1>Dolphin Olympics <span class="accent">3D</span></h1>
+        <p class="tag">Prototype</p>
+        <p class="tip">Dive deep, swim straight up, and launch. Flip and spin in the air, then hit the water nose first: the ring on the water turns green when your angle is good.</p>
+        <button class="primary" data-action="start">Play</button>
+        <p class="hint" id="title-hint">Press <kbd>Enter</kbd> or <kbd class="pad">A</kbd> / <kbd class="pad">Start</kbd></p>
+        <div class="controls-slot"></div>
+      </div>
+    </div>
+
+    <div id="pause" class="overlay" hidden>
+      <div class="card">
+        <h2>Paused</h2>
+        <div class="row">
+          <button class="primary" data-action="resume">Resume</button>
+          <button data-action="restart">Restart</button>
+          <button data-action="invert" id="invert-btn">Invert Y: Off</button>
+        </div>
+        <div class="controls-slot"></div>
+      </div>
+    </div>
+
+    <div id="results" class="overlay" hidden>
+      <div class="card">
+        <h2>Time!</h2>
+        <div class="final" id="final-score">0</div>
+        <p id="final-detail"></p>
+        <button class="primary" data-action="start">Play again</button>
+        <p class="hint">Press <kbd>Enter</kbd> or <kbd class="pad">A</kbd> / <kbd class="pad">Start</kbd></p>
+      </div>
+    </div>
+
+    <template id="controls-template">
+      <table class="controls">
+        <thead><tr><th></th><th>Keyboard</th><th>Controller</th></tr></thead>
+        <tbody>
+          <tr><td>Steer / flip &amp; spin</td><td><kbd>WASD</kbd> or arrows</td><td>Left stick or D-pad</td></tr>
+          <tr><td>Swim</td><td><kbd>Space</kbd></td><td><kbd class="pad">RT</kbd> or <kbd class="pad">A</kbd></td></tr>
+          <tr><td>Barrel roll</td><td><kbd>Q</kbd> <kbd>E</kbd></td><td><kbd class="pad">LB</kbd> <kbd class="pad">RB</kbd></td></tr>
+          <tr><td>Camera</td><td><kbd>I</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></td><td>Right stick</td></tr>
+          <tr><td>Pause</td><td><kbd>Esc</kbd></td><td><kbd class="pad">Start</kbd></td></tr>
+          <tr><td>Restart</td><td><kbd>R</kbd></td><td><kbd class="pad">Back</kbd></td></tr>
+          <tr><td>Invert Y (in menus)</td><td><kbd>Y</kbd></td><td><kbd class="pad">Y</kbd></td></tr>
+        </tbody>
+      </table>
+    </template>
+
+    <div id="touch" hidden>
+      <div id="stick-zone"><div id="stick-base"><div id="stick-knob"></div></div></div>
+      <button id="touch-pause" aria-label="Pause">II</button>
+      <div id="touch-buttons">
+        <button id="touch-roll-l" aria-label="Roll left">⟲</button>
+        <button id="touch-roll-r" aria-label="Roll right">⟳</button>
+        <button id="touch-swim">SWIM</button>
+      </div>
+    </div>
+
+    <div id="toast"></div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
