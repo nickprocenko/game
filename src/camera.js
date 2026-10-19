@@ -5,6 +5,10 @@ const ORBIT_RATE = 2.5;
 const ORBIT_RETURN = 2; // how fast the orbit springs back when the stick is released
 const SURFACE_BAND = 0.8; // keep the lens out of the waves
 
+const _dir = new THREE.Vector3();
+const _chase = new THREE.Vector3();
+const _ahead = new THREE.Vector3();
+
 const lerpRate = (rate, dt) => 1 - Math.exp(-rate * dt);
 
 function lerpAngle(a, b, t) {
@@ -21,6 +25,8 @@ export class CameraRig {
     this.orbitYaw = 0;
     this.orbitPitch = 0;
     this.lookAt = new THREE.Vector3();
+    this.offset = new THREE.Vector3();
+    this.lookOffset = new THREE.Vector3();
     this.desired = new THREE.Vector3();
     this.target = new THREE.Vector3();
     this.first = true;
@@ -48,10 +54,12 @@ export class CameraRig {
       this.orbitPitch *= 1 - lerpRate(ORBIT_RETURN, dt);
     }
 
-    // Pull back and up as the dolphin climbs, so the water stays in view.
+    // Near the water: pull back and up as the dolphin climbs, so the water
+    // stays in view.
     const altitude = Math.max(0, p.y - SURFACE_Y);
-    const dist = 9 + sim.speed * 0.12 + altitude * 0.45;
-    const height = 2.2 + altitude * 0.25;
+    const low = Math.min(altitude, 60);
+    const dist = 9 + sim.speed * 0.1 + low * 0.35;
+    const height = 2.2 + low * 0.2;
     const yaw = this.heading + this.orbitYaw;
     const back = Math.cos(this.orbitPitch) * dist;
     this.desired.set(
@@ -64,20 +72,38 @@ export class CameraRig {
     this.target.copy(p);
     if (sim.airborne && landing) this.target.lerp(landing.point, 0.35);
 
-    this.desired.y = Math.max(this.desired.y, SEABED_Y + 2);
-    if (Math.abs(this.desired.y - SURFACE_Y) < SURFACE_BAND) {
-      this.desired.y = SURFACE_Y + (p.y >= SURFACE_Y ? SURFACE_BAND : -SURFACE_BAND);
+    // High up: a chase camera right behind the direction of travel, so you
+    // look up at the stars on the way up and down at the Earth on the way back.
+    const high = sim.airborne ? THREE.MathUtils.smoothstep(altitude, 25, 80) : 0;
+    if (high > 0) {
+      _dir.copy(v).normalize();
+      const chase = 13 + Math.min(60, sim.speed) * 0.08;
+      _chase.copy(p).addScaledVector(_dir, -chase);
+      _chase.y += 3;
+      this.desired.lerp(_chase, high);
+      _ahead.copy(p).addScaledVector(_dir, 12);
+      this.target.lerp(_ahead, high);
     }
 
     const cam = this.camera;
+    // Smooth the offset from the dolphin rather than the world position, so the
+    // camera doesn't fall behind at a hundred metres a second.
+    this.desired.sub(p);
+    this.target.sub(p);
     if (this.first) {
-      cam.position.copy(this.desired);
-      this.lookAt.copy(this.target);
+      this.offset.copy(this.desired);
+      this.lookOffset.copy(this.target);
       this.first = false;
     } else {
-      cam.position.lerp(this.desired, lerpRate(6, dt));
-      this.lookAt.lerp(this.target, lerpRate(10, dt));
+      this.offset.lerp(this.desired, lerpRate(6, dt));
+      this.lookOffset.lerp(this.target, lerpRate(10, dt));
     }
+    cam.position.copy(p).add(this.offset);
+    cam.position.y = Math.max(cam.position.y, SEABED_Y + 2);
+    if (Math.abs(cam.position.y - SURFACE_Y) < SURFACE_BAND) {
+      cam.position.y = SURFACE_Y + (p.y >= SURFACE_Y ? SURFACE_BAND : -SURFACE_BAND);
+    }
+    this.lookAt.copy(p).add(this.lookOffset);
     cam.lookAt(this.lookAt);
 
     // A little extra field of view at speed.

@@ -1,7 +1,15 @@
 import * as THREE from 'three';
 import { SEABED_Y, SURFACE_Y } from './physics.js';
+import { realAltitude, EARTH_RADIUS } from './altitude.js';
 
 const SUN_DIR = new THREE.Vector3(0.45, 0.75, -0.35).normalize();
+const MOON_DIR = new THREE.Vector3(-0.3, 0.8, -0.52).normalize();
+const SPACE = new THREE.Color(0x01030a);
+const SKY_RADIUS = 1500;
+// Distance from the camera to the nearest point of the Earth sphere. The
+// sphere is drawn scaled down toward the camera so it fits inside the sky
+// dome while keeping its true angular size.
+const EARTH_NEAR = 5;
 
 const ABOVE = { fog: new THREE.Color(0xb9dcf0), density: 0.0011 };
 const SHALLOW = new THREE.Color(0x1f8fb3);
@@ -50,6 +58,7 @@ const WATER_FRAG = /* glsl */ `
   uniform vec3 uSunDir;
   uniform vec3 uFogColor;
   uniform float uFogDensity;
+  uniform float uOpacity;
   varying vec3 vWorld;
   varying vec3 vNormal;
 
@@ -72,7 +81,7 @@ const WATER_FRAG = /* glsl */ `
     }
     float d = length(cameraPosition - vWorld);
     float fog = 1.0 - exp(-uFogDensity * uFogDensity * d * d);
-    gl_FragColor = vec4(mix(col, uFogColor, fog), alpha);
+    gl_FragColor = vec4(mix(col, uFogColor, fog), alpha * uOpacity);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }
@@ -90,16 +99,147 @@ const SKY_FRAG = /* glsl */ `
   uniform vec3 uSunDir;
   uniform vec3 uHorizon;
   uniform vec3 uZenith;
+  uniform vec3 uSpace;
+  uniform float uSpaceMix;
   varying vec3 vDir;
   void main() {
     float h = clamp(vDir.y, 0.0, 1.0);
     vec3 col = mix(uHorizon, uZenith, pow(h, 0.5));
+    // Climbing out of the atmosphere, the sky darkens from the top down.
+    col = mix(col, uSpace, clamp(uSpaceMix * (1.0 + h * 1.5), 0.0, 1.0));
     float sun = max(dot(normalize(vDir), uSunDir), 0.0);
     col += vec3(1.0, 0.85, 0.6) * (pow(sun, 600.0) * 3.0 + pow(sun, 12.0) * 0.2);
     gl_FragColor = vec4(col, 1.0);
     #include <colorspace_fragment>
   }
 `;
+
+const EARTH_VERT = /* glsl */ `
+  varying vec3 vNormal;
+  varying vec3 vObj;
+  varying vec3 vWorld;
+  void main() {
+    vObj = position;
+    vNormal = normalize(mat3(modelMatrix) * normal);
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vWorld = world.xyz;
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`;
+
+// Ocean planet seen from above: value-noise clouds and a few islands, lit by
+// the sun, with a blue atmosphere glow at the limb.
+const EARTH_FRAG = /* glsl */ `
+  uniform vec3 uSunDir;
+  uniform float uTime;
+  uniform float uClouds;
+  varying vec3 vNormal;
+  varying vec3 vObj;
+  varying vec3 vWorld;
+
+  float hash(vec3 p) {
+    p = fract(p * 0.3183099 + 0.1);
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  }
+  float noise(vec3 x) {
+    vec3 i = floor(x);
+    vec3 f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(hash(i), hash(i + vec3(1, 0, 0)), f.x),
+                   mix(hash(i + vec3(0, 1, 0)), hash(i + vec3(1, 1, 0)), f.x), f.y),
+               mix(mix(hash(i + vec3(0, 0, 1)), hash(i + vec3(1, 0, 1)), f.x),
+                   mix(hash(i + vec3(0, 1, 1)), hash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+  }
+  // Many octaves, so the clouds still have structure when only a few degrees
+  // of the planet fill the view at low altitude.
+  float fbm(vec3 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 9; i++) {
+      v += a * noise(p);
+      p *= 2.03;
+      a *= 0.5;
+    }
+    return v;
+  }
+
+  void main() {
+    vec3 n = normalize(vNormal);
+    vec3 p = normalize(vObj);
+    float land = smoothstep(0.62, 0.66, fbm(p * 3.0 + 7.0));
+    vec3 col = mix(vec3(0.02, 0.17, 0.32), vec3(0.32, 0.45, 0.24), land);
+    // The point straight below you is always the sphere's pole, so this offset
+    // picks a noise region with scattered clouds there rather than a flat haze.
+    float cloud = smoothstep(0.5, 0.75, fbm(p * 5.0 + vec3(2.2 + uTime * 0.002, 22.6, 2.5)));
+    col = mix(col, vec3(0.95), cloud * 0.85 * uClouds);
+    float light = max(dot(n, uSunDir), 0.0);
+    col *= 0.04 + 0.96 * light;
+    vec3 toEye = normalize(cameraPosition - vWorld);
+    float rim = pow(1.0 - max(dot(n, toEye), 0.0), 3.0);
+    col += vec3(0.35, 0.6, 1.0) * rim * (0.15 + light);
+    gl_FragColor = vec4(col, 1.0);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }
+`;
+
+function moonTexture() {
+  const w = 256;
+  const h = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#b9b6ae';
+  ctx.fillRect(0, 0, w, h);
+  const rand = mulberry32(11);
+  // Dark maria, then craters.
+  for (let i = 0; i < 9; i++) {
+    ctx.fillStyle = `rgba(80, 80, 82, ${0.25 + rand() * 0.25})`;
+    ctx.beginPath();
+    ctx.ellipse(rand() * w, 20 + rand() * (h - 40), 12 + rand() * 30, 8 + rand() * 18, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (let i = 0; i < 90; i++) {
+    const x = rand() * w;
+    const y = rand() * h;
+    const r = 1 + rand() ** 3 * 9;
+    ctx.fillStyle = 'rgba(60, 60, 60, 0.35)';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(235, 235, 230, 0.4)';
+    ctx.beginPath();
+    ctx.arc(x - r * 0.15, y - r * 0.15, r, Math.PI * 0.9, Math.PI * 1.7);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function starField(count, radius) {
+  const rand = mulberry32(5);
+  const pos = new Float32Array(count * 3);
+  const col = new Float32Array(count * 3);
+  const v = new THREE.Vector3();
+  for (let i = 0; i < count; i++) {
+    // Uniform on the sphere.
+    const z = rand() * 2 - 1;
+    const a = rand() * Math.PI * 2;
+    const r = Math.sqrt(1 - z * z);
+    v.set(r * Math.cos(a), z, r * Math.sin(a)).multiplyScalar(radius);
+    pos.set([v.x, v.y, v.z], i * 3);
+    const b = 0.35 + rand() ** 4 * 0.65;
+    const warm = rand();
+    col.set([b * (0.85 + warm * 0.15), b * 0.9, b * (1 - warm * 0.15)], i * 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return geo;
+}
 
 function sandTexture() {
   const size = 256;
@@ -177,6 +317,8 @@ export class World {
   constructor(scene) {
     this.scene = scene;
     this.fogColor = new THREE.Color();
+    this.space = 0;
+    this.earthShown = false;
     scene.fog = new THREE.FogExp2(ABOVE.fog.getHex(), ABOVE.density);
     scene.background = ABOVE.fog.clone();
 
@@ -188,7 +330,7 @@ export class World {
 
     // Sky dome, follows the camera.
     this.sky = new THREE.Mesh(
-      new THREE.SphereGeometry(1500, 32, 16),
+      new THREE.SphereGeometry(SKY_RADIUS, 32, 16),
       new THREE.ShaderMaterial({
         vertexShader: SKY_VERT,
         fragmentShader: SKY_FRAG,
@@ -196,6 +338,8 @@ export class World {
           uSunDir: { value: SUN_DIR },
           uHorizon: { value: ABOVE.fog.clone() },
           uZenith: { value: new THREE.Color(0x2f74c4) },
+          uSpace: { value: SPACE },
+          uSpaceMix: { value: 0 },
         },
         side: THREE.BackSide,
         depthWrite: false,
@@ -214,6 +358,7 @@ export class World {
       uSunDir: { value: SUN_DIR },
       uFogColor: { value: new THREE.Color() },
       uFogDensity: { value: ABOVE.density },
+      uOpacity: { value: 1 },
     };
     const waterGeo = new THREE.PlaneGeometry(1400, 1400, 220, 220);
     waterGeo.rotateX(-Math.PI / 2);
@@ -245,6 +390,47 @@ export class World {
 
     this.buildProps();
     this.buildHorizon();
+    this.buildSpace();
+  }
+
+  buildSpace() {
+    // Opaque-pass additive points, so they draw after the sky and before the
+    // Earth, which then covers the stars behind it.
+    this.stars = new THREE.Points(
+      starField(2500, SKY_RADIUS * 0.9),
+      new THREE.PointsMaterial({
+        size: 2, sizeAttenuation: false, vertexColors: true, blending: THREE.AdditiveBlending,
+        depthWrite: false, depthTest: false, fog: false,
+      }),
+    );
+    this.stars.renderOrder = -0.9;
+    this.stars.frustumCulled = false;
+    this.scene.add(this.stars);
+
+    this.earthUniforms = { uSunDir: { value: SUN_DIR }, uTime: { value: 0 }, uClouds: { value: 0 } };
+    this.earth = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 96, 192),
+      new THREE.ShaderMaterial({
+        vertexShader: EARTH_VERT,
+        fragmentShader: EARTH_FRAG,
+        uniforms: this.earthUniforms,
+        depthWrite: false,
+        depthTest: false,
+        fog: false,
+      }),
+    );
+    this.earth.renderOrder = -0.5;
+    this.earth.frustumCulled = false;
+    this.scene.add(this.earth);
+
+    // Mostly a crescent from the ocean, so earthshine keeps the dark side readable.
+    const moonMap = moonTexture();
+    this.moon = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 48, 24),
+      new THREE.MeshLambertMaterial({ map: moonMap, emissive: 0x6a6c74, emissiveMap: moonMap, fog: false }),
+    );
+    this.moon.rotation.y = 2.2;
+    this.scene.add(this.moon);
   }
 
   buildProps() {
@@ -321,6 +507,7 @@ export class World {
 
     this.sky.position.copy(c);
     this.horizon.position.set(c.x, 0, c.z);
+    this.updateSpace(c, time);
 
     const snap = 10;
     this.water.position.x = Math.round(c.x / snap) * snap;
@@ -341,18 +528,59 @@ export class World {
       this.fogColor.copy(SHALLOW).lerp(DEEP, t * 0.8);
       fog.density = 0.02 + t * 0.008;
     } else {
-      this.fogColor.copy(ABOVE.fog);
-      fog.density = ABOVE.density;
+      // The haze thins out as you climb, so the ocean stays visible below.
+      this.fogColor.copy(ABOVE.fog).lerp(SPACE, this.space);
+      fog.density = ABOVE.density * (1 - THREE.MathUtils.smoothstep(c.y, 20, 160));
     }
     fog.color.copy(this.fogColor);
     this.scene.background.copy(this.fogColor);
     this.sky.visible = !under;
-    this.horizon.visible = !under;
+    this.stars.visible = !under && this.space > 0.01;
+    this.moon.visible = !under;
+    this.earth.visible = !under && this.earthShown;
+    this.horizon.visible = !under && c.y < 150;
     // The seabed is far too deep to see from above the surface.
     this.seabed.visible = under;
-    for (const p of this.props) p.mesh.visible = under || p.surface;
+    for (const p of this.props) p.mesh.visible = under || (p.surface && c.y < 150);
+    // High up, the flat sea hands over to the curved Earth below.
+    const waterFade = 1 - THREE.MathUtils.smoothstep(c.y, 90, 220);
+    this.water.visible = waterFade > 0;
+    this.waterUniforms.uOpacity.value = under ? 1 : waterFade;
     this.waterUniforms.uFogColor.value.copy(this.fogColor);
     this.waterUniforms.uFogDensity.value = fog.density;
     return under;
+  }
+
+  // Altitude-driven sky: space colour, stars, Moon and the Earth below.
+  updateSpace(c, time) {
+    const real = realAltitude(Math.max(0, c.y - SURFACE_Y));
+    // 0 at 3 km, 1 at the Kármán line (100 km), on a log scale.
+    const log = Math.log10(Math.max(1, real));
+    this.space = THREE.MathUtils.smoothstep(log, 3.5, 5);
+    this.sky.material.uniforms.uSpaceMix.value = this.space;
+    this.stars.position.copy(c);
+    this.stars.material.color.setScalar(this.space);
+
+    // The Moon sits at a fixed direction, as if infinitely far, and looms a
+    // little larger as you climb toward it.
+    const loom = 1 + THREE.MathUtils.smoothstep(log, 5, 7.6) * 1.2;
+    this.moon.position.copy(c).addScaledVector(MOON_DIR, SKY_RADIUS * 0.8);
+    this.moon.scale.setScalar(38 * loom);
+
+    // The Earth: a sphere whose radius makes the horizon curve as it would at
+    // the real altitude, scaled toward the camera so it fits in view.
+    const h = c.y - SURFACE_Y;
+    // It takes over from the flat sea as that fades out.
+    this.earthShown = h > 90;
+    if (this.earthShown) {
+      const radius = (h * EARTH_RADIUS) / real;
+      const k = EARTH_NEAR / h;
+      this.earth.position.set(c.x, c.y - (radius + h) * k, c.z);
+      this.earth.scale.setScalar(radius * k);
+      this.earthUniforms.uTime.value = time;
+      // Clouds fade in from 20 km. Lower down the patch of planet in view is
+      // too small for the noise to resolve, so it would read as flat haze.
+      this.earthUniforms.uClouds.value = THREE.MathUtils.smoothstep(log, 4.3, 5);
+    }
   }
 }

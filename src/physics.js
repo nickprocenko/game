@@ -5,17 +5,29 @@ import { gradeLanding, LANDING } from './scoring.js';
 export const SURFACE_Y = 0;
 export const SEABED_Y = -55;
 export const GRAVITY = 24;
+// Gravity fades with height as if the ocean sat on a small planet of this
+// radius, so the biggest jumps hang a little longer at the top. Escape speed,
+// sqrt(2 * GRAVITY * PLANET_RADIUS) ≈ 219 m/s, is far above MAX_SPEED, so you
+// always come back down: leaving the planet is faked with the altitude scale.
+export const PLANET_RADIUS = 1000;
 
 const CRUISE_SPEED = 7;
 const SWIM_ACCEL = 16;
 const MAX_SWIM_SPEED = 30; // top speed from swimming alone
-const MAX_SPEED = 75; // hard cap, reachable only by chaining clean landings
+export const MAX_SPEED = 130; // hard cap, reachable only by chaining clean landings
 const MOMENTUM_BLEED = 0.35; // how fast speed above MAX_SWIM_SPEED decays underwater
 const TURN_RATE = 1.9;
 const PITCH_RATE = 1.7;
 const MAX_PITCH = (80 * Math.PI) / 180;
 const EXIT_MIN_VY = 4; // slower than this and you skim along the surface instead
 const SKIM_DEPTH = -0.4;
+// After a clean landing the dolphin curls back up toward the surface on its own.
+const REDIRECT_MIN_RATE = 2.5; // rad/s
+const REDIRECT_RADIUS = 22; // turning radius at speed, in metres
+// Just before entry, with the stick released, the nose eases toward the
+// direction of travel so tiny errors at huge speed don't wipe you out.
+const ASSIST_WINDOW = 0.45; // seconds before impact
+const ASSIST_RATE = 2.2; // rad/s, too slow to rescue a badly wrong pose
 
 const FLIP_RATE = 6.5;
 const SPIN_RATE = 5.5;
@@ -24,19 +36,37 @@ const SPIN_RESPONSE = 10;
 
 const FORWARD = new Vector3(0, 0, -1);
 const _v = new Vector3();
+const _t = new Vector3();
+const _axis = new Vector3();
 const _q = new Quaternion();
 const _e = new Euler(0, 0, 0, 'YXZ');
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 const approach = (cur, target, rate, dt) => cur + (target - cur) * Math.min(1, rate * dt);
 
+export function gravityAt(y) {
+  const r = 1 + Math.max(0, y - SURFACE_Y) / PLANET_RADIUS;
+  return GRAVITY / (r * r);
+}
+
 // Where a ballistic body will hit the water, and with what velocity.
+// Gravity varies with height, so this integrates the arc the same way the sim does.
 export function predictLanding(pos, vel, out = { point: new Vector3(), velocity: new Vector3(), time: 0 }) {
-  const disc = vel.y * vel.y + 2 * GRAVITY * Math.max(0, pos.y - SURFACE_Y);
-  const t = (vel.y + Math.sqrt(disc)) / GRAVITY;
+  let { x, y, z } = pos;
+  let vy = vel.y;
+  let t = 0;
+  for (let i = 0; i < 100000 && y >= SURFACE_Y; i++) {
+    // Big steps high up where gravity is weak, fine steps near the water.
+    const dt = y - SURFACE_Y > 150 ? 1 / 30 : 1 / 120;
+    vy -= gravityAt(y) * dt;
+    y += vy * dt;
+    x += vel.x * dt;
+    z += vel.z * dt;
+    t += dt;
+  }
   out.time = t;
-  out.point.set(pos.x + vel.x * t, SURFACE_Y, pos.z + vel.z * t);
-  out.velocity.set(vel.x, vel.y - GRAVITY * t, vel.z);
+  out.point.set(x, SURFACE_Y, z);
+  out.velocity.set(vel.x, vy, vel.z);
   return out;
 }
 
@@ -66,6 +96,7 @@ export class DolphinSim {
     this.airTime = 0;
     this.jumpHeight = 0;
     this.stun = 0;
+    this.redirecting = false;
     this.angularVelocity.set(0, 0, 0);
     this.rotation.set(0, 0, 0);
     this.updateUnderwaterOrientation();
@@ -105,7 +136,15 @@ export class DolphinSim {
 
     const yawRate = -input.steerX * TURN_RATE * control;
     this.yaw += yawRate * dt;
-    this.pitch = clamp(this.pitch + input.steerY * PITCH_RATE * control * dt, -MAX_PITCH, MAX_PITCH);
+    // Pushing the stick down cancels the redirect and lets you dive.
+    if (this.redirecting && input.steerY < -0.5) this.redirecting = false;
+    if (this.redirecting) {
+      const rate = Math.max(REDIRECT_MIN_RATE, this.speed / REDIRECT_RADIUS);
+      this.pitch = Math.min(MAX_PITCH, this.pitch + rate * dt);
+      if (this.pitch >= MAX_PITCH) this.redirecting = false;
+    } else {
+      this.pitch = clamp(this.pitch + input.steerY * PITCH_RATE * control * dt, -MAX_PITCH, MAX_PITCH);
+    }
     this.bank = approach(this.bank, yawRate * 0.4, 5, dt);
 
     // Swimming only accelerates you up to MAX_SWIM_SPEED; anything above that
@@ -114,14 +153,14 @@ export class DolphinSim {
     if (swim > 0 && this.speed < MAX_SWIM_SPEED) {
       this.speed = Math.min(MAX_SWIM_SPEED, this.speed + SWIM_ACCEL * swim * dt);
     }
-    if (this.speed > MAX_SWIM_SPEED) {
+    if (this.speed > MAX_SWIM_SPEED && !this.redirecting) {
       this.speed -= (this.speed - MAX_SWIM_SPEED) * MOMENTUM_BLEED * dt;
     } else if (swim === 0) {
       this.speed = approach(this.speed, CRUISE_SPEED, 0.8, dt);
     }
 
     // Don't plough into the seabed: level out.
-    if (this.position.y < SEABED_Y + 3 && this.pitch < 0) {
+    if (this.position.y < SEABED_Y + 3 && this.pitch < 0 && !this.redirecting) {
       this.pitch = approach(this.pitch, 0, 6, dt);
     }
 
@@ -141,6 +180,7 @@ export class DolphinSim {
 
   launch(events) {
     this.airborne = true;
+    this.redirecting = false;
     this.airTime = 0;
     this.jumpHeight = 0;
     this.angularVelocity.set(0, 0, 0);
@@ -150,7 +190,7 @@ export class DolphinSim {
 
   stepAir(input, dt, events) {
     this.airTime += dt;
-    this.velocity.y -= GRAVITY * dt;
+    this.velocity.y -= gravityAt(this.position.y) * dt;
     this.position.addScaledVector(this.velocity, dt);
     this.jumpHeight = Math.max(this.jumpHeight, this.position.y);
 
@@ -167,6 +207,23 @@ export class DolphinSim {
       this.orientation.multiply(_q).normalize(); // post-multiply = local axes
     }
     this.rotation.addScaledVector(w, dt);
+
+    // The assist turns the nose without counting toward tricks, and only
+    // kicks in once you stop rotating.
+    const idle = Math.abs(input.steerX) < 0.2 && Math.abs(input.steerY) < 0.2 && !input.roll;
+    const height = this.position.y - SURFACE_Y;
+    if (idle && this.velocity.y < 0 && height < -this.velocity.y * ASSIST_WINDOW) {
+      const nose = this.forward(this.orientation, _v);
+      const target = _t.copy(this.velocity).normalize();
+      const angle = Math.acos(clamp(nose.dot(target), -1, 1));
+      if (angle > 1e-4) {
+        _axis.crossVectors(nose, target).normalize();
+        if (_axis.lengthSq() > 0) {
+          _q.setFromAxisAngle(_axis, Math.min(angle, ASSIST_RATE * dt));
+          this.orientation.premultiply(_q).normalize(); // pre-multiply = world axes
+        }
+      }
+    }
 
     if (this.position.y < SURFACE_Y) this.land(events);
   }
@@ -185,6 +242,7 @@ export class DolphinSim {
     this.bank = 0;
     this.speed = Math.min(MAX_SPEED, entrySpeed * LANDING[grade].speedKeep);
     this.stun = grade === 'wipeout' ? 0.9 : 0;
+    this.redirecting = grade !== 'wipeout' && this.pitch < 0;
     this.airborne = false;
     this.position.y = Math.min(this.position.y, -0.5);
     this.updateUnderwaterOrientation();

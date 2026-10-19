@@ -13,9 +13,9 @@ const TRICK_TYPES = {
 };
 
 export const LANDING = {
-  perfect: { label: 'PERFECT!', maxAngle: 20, scoreMult: 1.5, speedKeep: 1.05 },
-  clean: { label: 'Clean', maxAngle: 45, scoreMult: 1.0, speedKeep: 0.85 },
-  wipeout: { label: 'WIPEOUT', maxAngle: 180, scoreMult: 0, speedKeep: 0.3 },
+  perfect: { label: 'PERFECT!', maxAngle: 20, scoreMult: 1.5, speedKeep: 1.15 },
+  clean: { label: 'Clean', maxAngle: 45, scoreMult: 1.0, speedKeep: 1.04 },
+  wipeout: { label: 'WIPEOUT', maxAngle: 180, scoreMult: 0, speedKeep: 0.5 },
 };
 
 export function fullTurns(radians) {

@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
-import { DolphinSim, predictLanding, GRAVITY } from '../src/physics.js';
+import { Quaternion } from 'three';
+import { DolphinSim, predictLanding, gravityAt, GRAVITY } from '../src/physics.js';
 import { countTricks, fullTurns, gradeLanding, ScoreKeeper } from '../src/scoring.js';
+import { realAltitude, markersPassed } from '../src/altitude.js';
 
 const idle = { steerX: 0, steerY: 0, roll: 0, swim: 0 };
 const DT = 1 / 120;
@@ -44,12 +46,33 @@ test('wipeout resets the combo and scores nothing', () => {
 });
 
 test('landing prediction matches the simulated arc', () => {
-  const pos = new Vector3(0, 0, 0);
-  const vel = new Vector3(3, 20, -5);
-  const p = predictLanding(pos, vel);
-  assert.ok(Math.abs(p.time - (2 * 20) / GRAVITY) < 1e-9);
-  assert.ok(Math.abs(p.point.x - 3 * p.time) < 1e-9);
-  assert.ok(Math.abs(p.velocity.y + 20) < 1e-9);
+  const sim = new DolphinSim();
+  sim.airborne = true;
+  sim.position.set(0, 0, 0);
+  sim.velocity.set(3, 60, -5);
+  const p = predictLanding(sim.position, sim.velocity);
+  let landing;
+  run(sim, idle, 20, (e) => {
+    if (e.type === 'land') landing ??= e;
+  });
+  assert.ok(landing, 'expected a landing');
+  assert.ok(Math.abs(p.time - landing.airTime) < 0.05, `predicted ${p.time}, took ${landing.airTime}`);
+  assert.ok(Math.abs(p.point.x - landing.position.x) < 0.5);
+  assert.ok(Math.abs(p.velocity.y + 60) < 1);
+});
+
+test('gravity weakens with height', () => {
+  assert.equal(gravityAt(0), GRAVITY);
+  assert.equal(gravityAt(-10), GRAVITY);
+  assert.ok(gravityAt(500) < GRAVITY * 0.5);
+});
+
+test('real altitude climbs steeply and passes markers once', () => {
+  assert.ok(Math.abs(realAltitude(10) - 10) < 3, 'a metre is about a metre near the water');
+  assert.ok(realAltitude(300) > 100_000, 'a few hundred game metres is space');
+  assert.ok(realAltitude(301) > realAltitude(300));
+  assert.deepEqual(markersPassed(90_000, 410_000).map((m) => m.name), ['Kármán line', 'Space Station']);
+  assert.equal(markersPassed(410_000, 90_000).length, 0, 'falling back past a marker shows nothing');
 });
 
 test('swimming straight up from depth launches out of the water', () => {
@@ -109,4 +132,41 @@ test('a full backflip in the air scores and lands clean', () => {
   assert.notEqual(result.grade, 'wipeout');
   assert.deepEqual(result.tricks, [{ type: 'backflip', count: 1 }]);
   assert.ok(result.points > 0);
+});
+
+// Holds the nose along the direction of travel the whole jump.
+function perfectPose(sim) {
+  const q = new Quaternion().setFromUnitVectors(new Vector3(0, 0, -1), sim.velocity.clone().normalize());
+  sim.orientation.copy(q);
+}
+
+test('a clean landing curls back up and launches again, faster', () => {
+  const sim = new DolphinSim();
+  sim.position.set(0, -40, 0);
+  sim.pitch = (80 * Math.PI) / 180;
+  const exits = [];
+  for (let t = 0; t < 40 && exits.length < 3; t += DT) {
+    if (sim.airborne) perfectPose(sim);
+    for (const e of sim.step({ ...idle, swim: sim.airborne ? 0 : 1 }, DT)) {
+      if (e.type === 'exit') exits.push(e.speed);
+    }
+  }
+  assert.equal(exits.length, 3, 'expected three launches in a row');
+  assert.ok(exits[1] > exits[0] * 1.1 && exits[2] > exits[1] * 1.1, `exit speeds ${exits}`);
+});
+
+test('the entry assist fixes a small misalignment', () => {
+  const sim = new DolphinSim();
+  sim.airborne = true;
+  sim.position.set(0, 12, 0);
+  sim.velocity.set(0, -30, -10);
+  perfectPose(sim);
+  // Tilt the nose 30° off: a plain "clean" without help.
+  sim.orientation.multiply(new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), (30 * Math.PI) / 180));
+  let landing;
+  run(sim, idle, 5, (e) => {
+    if (e.type === 'land') landing ??= e;
+  });
+  assert.ok(landing, 'expected a landing');
+  assert.equal(landing.grade, 'perfect', `entry angle ${landing.angle}`);
 });

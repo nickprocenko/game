@@ -8,10 +8,10 @@ import { createDolphin, animateTail } from './dolphin.js';
 import { Effects } from './effects.js';
 import { CameraRig } from './camera.js';
 import { Hud, entryClass } from './hud.js';
+import { realAltitude, markersPassed, formatAltitude } from './altitude.js';
 
-const ROUND_SECONDS = 120;
 const STEP = 1 / 120;
-const BEST_KEY = 'dolphin3d.best';
+const BEST_KEY = 'dolphin3d.bestAltitude';
 const INVERT_KEY = 'dolphin3d.invertY';
 const ENTRY_COLORS = { good: 0x5be37d, ok: 0xffd25a, bad: 0xff6b5a };
 
@@ -50,6 +50,18 @@ marker.renderOrder = 4;
 marker.visible = false;
 scene.add(marker);
 
+// Arrow just below the dolphin on long falls: it points the way the dolphin
+// will be travelling when it hits the water, i.e. the way to face.
+const arrowGeo = new THREE.ConeGeometry(0.35, 1.1, 12);
+arrowGeo.rotateX(-Math.PI / 2); // tip along -Z, the dolphin's forward axis
+const arrow = new THREE.Mesh(arrowGeo, new THREE.MeshBasicMaterial({
+  color: ENTRY_COLORS.good, transparent: true, opacity: 0.8, depthWrite: false, fog: false,
+}));
+arrow.renderOrder = 5;
+arrow.visible = false;
+scene.add(arrow);
+const ARROW_FORWARD = new THREE.Vector3(0, 0, -1);
+
 function resize() {
   const w = window.innerWidth;
   const h = window.innerHeight;
@@ -73,20 +85,21 @@ const hud = new Hud();
 const overlays = {
   title: document.getElementById('title'),
   paused: document.getElementById('pause'),
-  results: document.getElementById('results'),
 };
 
 let mode = 'title';
-let timeLeft = ROUND_SECONDS;
 let best = Number(store.get(BEST_KEY)) || 0;
 let accumulator = 0;
 let clock = 0;
 let dripTime = 0;
-let resultsAt = 0;
+// Altitude trivia already shown this run, and the altitude last frame.
+let factsShown = new Set();
+let lastAltitude = 0;
 input.invertY = store.get(INVERT_KEY) === '1';
 
 const landing = predictLanding(sim.position, sim.velocity);
 const nose = new THREE.Vector3();
+const entryDir = new THREE.Vector3();
 const tailWorld = new THREE.Vector3();
 
 function setMode(next) {
@@ -96,29 +109,35 @@ function setMode(next) {
   touch.setVisible(next === 'playing');
 }
 
+// Runs are open-ended: no timer, no dying. Restart from the pause menu.
 function startRound() {
   sim.reset();
   keeper.reset();
-  timeLeft = ROUND_SECONDS;
   accumulator = 0;
+  factsShown = new Set();
+  lastAltitude = 0;
+  hud.hideFact();
   rig.snap();
   setMode('playing');
 }
 
-function endRound() {
-  const isBest = keeper.score > best;
-  if (isBest) {
-    best = keeper.score;
-    store.set(BEST_KEY, String(best));
+function checkAltitude() {
+  const altitude = realAltitude(sim.position.y);
+  for (const m of markersPassed(lastAltitude, altitude)) {
+    if (factsShown.has(m)) continue;
+    factsShown.add(m);
+    hud.showFact(m);
   }
-  document.getElementById('final-score').textContent = keeper.score.toLocaleString('en-US');
-  document.getElementById('final-detail').textContent = [
-    isBest && best > 0 ? 'New personal best!' : `Best ${best.toLocaleString('en-US')}`,
-    `Top jump ${keeper.bestJump.toLocaleString('en-US')}`,
-    `Highest ${keeper.maxHeight.toFixed(1)} m`,
-  ].join(' · ');
-  resultsAt = clock;
-  setMode('results');
+  lastAltitude = altitude;
+}
+
+function recordHeight(maxHeight) {
+  const altitude = realAltitude(maxHeight);
+  if (altitude <= best) return;
+  // Don't make a fuss over the first few small hops.
+  if (best >= 100) hud.toast(`New record: ${formatAltitude(altitude)}`);
+  best = altitude;
+  store.set(BEST_KEY, String(Math.round(best)));
 }
 
 function toggleInvert() {
@@ -167,6 +186,7 @@ function handleEvents(events) {
       if (mode === 'playing') {
         const result = keeper.land(e);
         hud.showLanding(result);
+        recordHeight(e.maxHeight);
       }
       const rumble = { perfect: [0.2, 0.6, 120], clean: [0.45, 0.45, 160], wipeout: [1, 0.7, 380] }[e.grade];
       input.rumble(...rumble);
@@ -174,7 +194,7 @@ function handleEvents(events) {
   }
 }
 
-// Cruises in lazy circles behind the title and results screens.
+// Cruises in lazy circles behind the title screen.
 const demoInput = { steerX: 0.25, steerY: 0, roll: 0, swim: 0 };
 
 function frame(now) {
@@ -182,9 +202,8 @@ function frame(now) {
   frame.last = now;
   const controls = input.poll();
 
-  if (mode === 'title' || mode === 'results') {
-    // Short delay so a button mashed during the last jump doesn't skip the results.
-    if (controls.confirm && (mode === 'title' || clock - resultsAt > 1)) startRound();
+  if (mode === 'title') {
+    if (controls.confirm) startRound();
     if (controls.invert) toggleInvert();
   } else if (mode === 'playing') {
     if (controls.pause) setMode('paused');
@@ -203,11 +222,7 @@ function frame(now) {
       accumulator -= STEP;
       handleEvents(sim.step(simInput, STEP));
     }
-    if (mode === 'playing') {
-      timeLeft -= dt;
-      // The buzzer waits for the last jump to land.
-      if (timeLeft <= 0 && !sim.airborne) endRound();
-    }
+    if (mode === 'playing') checkAltitude();
     effects.update(dt, clock);
     if (dripTime > 0 && sim.airborne) {
       dripTime -= dt;
@@ -240,10 +255,22 @@ function frame(now) {
   }
   marker.visible = sim.airborne;
 
+  // The water-and-heading arrow, for falls long enough that the ring is out of sight.
+  const showArrow = sim.airborne && sim.velocity.y < 0 && sim.position.y > 30;
+  if (showArrow) {
+    arrow.material.color.setHex(ENTRY_COLORS[entryClass(entryAngle)]);
+    entryDir.copy(landing.velocity).normalize();
+    arrow.quaternion.setFromUnitVectors(ARROW_FORWARD, entryDir);
+    arrow.position.copy(sim.position).addScaledVector(entryDir, 2.8);
+    arrow.position.y -= 0.6;
+    arrow.material.opacity = 0.55 + 0.35 * Math.min(1, 4 / Math.max(1, landing.time));
+  }
+  arrow.visible = showArrow;
+
   rig.update(sim, sim.airborne ? landing : null, mode === 'playing' ? controls : demoInput, dt);
   world.update(camera, clock);
   if (mode === 'playing' || mode === 'paused') {
-    hud.update({ sim, keeper, timeLeft, entryAngle, landingSoon }, dt);
+    hud.update({ sim, keeper, best, entryAngle, landingSoon, landingTime: landing.time }, dt);
   }
 
   renderer.render(scene, camera);

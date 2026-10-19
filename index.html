@@ -15,13 +15,14 @@
         <div id="score" class="big">0</div>
         <div id="combo" class="combo"></div>
       </div>
-      <div class="panel timer-panel">
-        <div class="label">Time</div>
-        <div id="timer" class="big">2:00</div>
+      <div class="panel altitude-panel">
+        <div class="label">Altitude</div>
+        <div id="altitude" class="big">0 m</div>
+        <div id="best-altitude" class="sub"></div>
       </div>
       <div class="panel speed-panel">
         <div class="label">Speed</div>
-        <div><span id="speed" class="big">0</span> <span class="unit">km/h</span></div>
+        <div><span id="speed" class="big">0</span> <span id="speed-unit" class="unit">km/h</span></div>
         <div class="bar"><div id="speedbar"></div></div>
       </div>
       <div id="depth-gauge" aria-hidden="true">
@@ -34,14 +35,15 @@
       <div id="tricks"></div>
       <div id="entry"></div>
       <div id="popup"></div>
+      <div id="fact"></div>
       <div id="device"></div>
     </div>
 
     <div id="title" class="overlay">
       <div class="card">
         <h1>Dolphin Olympics <span class="accent">3D</span></h1>
-        <p class="tag">Prototype</p>
-        <p class="tip">Dive deep, swim straight up, and launch. Flip and spin in the air, then hit the water nose first: the ring on the water turns green when your angle is good.</p>
+        <p class="tag">So long, and thanks for all the fish</p>
+        <p class="tip">The dolphins left Earth without you. Bounce your way up after them: dive, swim straight up and launch. Hit the water nose first and you whip straight back up, faster each time. Chain clean landings to break out of the atmosphere.</p>
         <button class="primary" data-action="start">Play</button>
         <p class="hint" id="title-hint">Press <kbd>Enter</kbd> or <kbd class="pad">A</kbd> / <kbd class="pad">Start</kbd></p>
         <div class="controls-slot"></div>
@@ -57,16 +59,6 @@
           <button data-action="invert" id="invert-btn">Invert Y: Off</button>
         </div>
         <div class="controls-slot"></div>
-      </div>
-    </div>
-
-    <div id="results" class="overlay" hidden>
-      <div class="card">
-        <h2>Time!</h2>
-        <div class="final" id="final-score">0</div>
-        <p id="final-detail"></p>
-        <button class="primary" data-action="start">Play again</button>
-        <p class="hint">Press <kbd>Enter</kbd> or <kbd class="pad">A</kbd> / <kbd class="pad">Start</kbd></p>
       </div>
     </div>
 

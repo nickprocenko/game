@@ -66,8 +66,8 @@ html, body {
 .combo { font-size: 14px; font-weight: 600; color: var(--accent); min-height: 1.2em; }
 
 .score-panel { top: max(12px, env(safe-area-inset-top)); left: 16px; min-width: 140px; }
-.timer-panel { top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); text-align: center; }
-.timer-panel.low .big { color: var(--bad); }
+.altitude-panel { top: max(12px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); text-align: center; min-width: 120px; }
+.sub { font-size: 12px; color: var(--hud-muted); min-height: 1.2em; font-variant-numeric: tabular-nums; }
 .speed-panel { top: max(12px, env(safe-area-inset-top)); right: 16px; min-width: 130px; text-align: right; }
 .bar { height: 5px; background: rgba(255, 255, 255, 0.15); border-radius: 3px; margin-top: 4px; overflow: hidden; }
 #speedbar { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--ok), var(--bad)); }
@@ -126,6 +126,26 @@ html, body {
 #popup.clean { color: var(--hud-text); }
 #popup.wipeout { color: var(--bad); }
 
+#fact {
+  position: absolute;
+  left: 50%;
+  bottom: 18%;
+  transform: translateX(-50%);
+  max-width: min(460px, calc(100% - 32px));
+  width: max-content;
+  text-align: center;
+  background: var(--hud-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 8px 16px;
+  font-size: 14px;
+  line-height: 1.4;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+#fact.show { opacity: 1; }
+#fact strong { display: block; color: var(--accent); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
+
 #device {
   position: absolute;
   left: 16px;
@@ -164,7 +184,6 @@ h2 { margin: 0 0 12px; font-size: 28px; }
 .tag { margin: 4px 0 12px; color: var(--hud-muted); text-transform: uppercase; letter-spacing: 0.2em; font-size: 12px; }
 .tip { color: var(--hud-muted); line-height: 1.5; }
 .hint { font-size: 13px; color: var(--hud-muted); }
-.final { font-size: 52px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
 .row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 
 button {
@@ -247,7 +266,7 @@ kbd.pad { border-radius: 10px; background: rgba(79, 209, 197, 0.18); }
   .score-panel, .speed-panel { min-width: 0; padding: 6px 10px; }
   .score-panel { left: 8px; }
   .speed-panel { right: 8px; }
-  .timer-panel { top: max(70px, env(safe-area-inset-top)); }
+  .altitude-panel { top: max(70px, env(safe-area-inset-top)); }
   #depth-gauge { right: 12px; height: 34vh; }
   #tricks { font-size: 18px; }
   #popup { font-size: 30px; }
