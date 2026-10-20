@@ -11,6 +11,10 @@ npm test         # physics and scoring tests (Node, no browser)
 npm run build    # static build in dist/
 ```
 
+## Publish it
+
+A GitHub Actions workflow (`.github/workflows/pages.yml`) tests, builds and deploys to GitHub Pages on every push to the default branch. One-time setup: in the repo, go to Settings → Pages and set Source to **GitHub Actions**. Pages on a private repo needs a paid GitHub plan; otherwise make the repo public. The game then lives at `https://<user>.github.io/game/`.
+
 ## How to play
 
 Dive deep, swim straight up and launch out of the water. Flip, spin and roll in the air, then come down nose first. A ring on the water marks where you'll land. It turns green when your nose lines up with your direction of travel, so the landing will be clean.
